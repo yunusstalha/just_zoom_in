@@ -29,10 +29,10 @@ def build_transforms(target_image_size):
 
     satellite = T.Compose([
         resize_satellite,
-        T.RandomRotation(degrees=10, interpolation=InterpolationMode.BILINEAR),
-        T.RandomHorizontalFlip(),
-        T.RandomVerticalFlip(),
-        T.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.05, hue=0.01),
+        # T.RandomRotation(degrees=10, interpolation=InterpolationMode.BILINEAR),
+        # T.RandomHorizontalFlip(),
+        # T.RandomVerticalFlip(),
+        # T.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.05, hue=0.01),
         T.ToTensor(),
         normalize,
     ])

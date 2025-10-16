@@ -198,3 +198,4 @@ cython_debug/
 sample_visualizations
 dataset_visualizations
 ground_truth_sequences.csv
+utils/test_geoloc.py
