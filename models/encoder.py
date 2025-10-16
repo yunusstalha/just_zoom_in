@@ -56,8 +56,18 @@ class VisionTransformerEncoder(nn.Module):
             A dictionary containing global and local embeddings for both streams.
         """
         # 1. Process the batch of ground images
-        ground_global, ground_local = self._process_batch(ground_images)
-
+        B_g, N_crops, C_g, H_g, W_g = ground_images.shape
+        
+        # Reshape to process all crops in one batch: (B, 2, C, H, W) -> (B*2, C, H, W)
+        ground_images_flat = ground_images.view(B_g * N_crops, C_g, H_g, W_g)
+        
+        # Get flattened global embeddings of shape (B*2, D)
+        ground_global_flat, _ = self._process_batch(ground_images_flat)
+        
+        # Reshape back and average across crops to get a single feature per sample
+        # (B*2, D) -> (B, 2, D) -> (B, D)
+        ground_global = ground_global_flat.view(B_g, N_crops, -1).mean(dim=1)
+        ground_local = None
         # 2. Process the sequence of satellite images
         B, S, C, H, W = satellite_images.shape
         # Flatten the batch and sequence dimensions to process all at once
