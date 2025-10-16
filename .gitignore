@@ -194,4 +194,7 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-.gitignore 
+.gitignore
+sample_visualizations
+dataset_visualizations
+ground_truth_sequences.csv
