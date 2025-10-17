@@ -5,7 +5,7 @@ def get_config():
 
     # --- Paths ---
     cfg.paths = ConfigDict()
-    cfg.paths.metadata_csv = "./ground_truth_sequences_train.csv"
+    cfg.paths.metadata_csv = "./ground_truth_sequences_val.csv"
     cfg.paths.ground_root = "/local/scratch2/cross_view_data/filtered_street_v2/images"
     cfg.paths.tile_layout = "/local/scratch2/cross_view_data/sat/layout.yaml"
     cfg.paths.log_dir = "./logs"

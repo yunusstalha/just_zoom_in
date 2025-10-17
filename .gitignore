@@ -197,5 +197,10 @@ cython_debug/
 .gitignore
 sample_visualizations
 dataset_visualizations
+overfit_visualizations
+evaluation_results
 ground_truth_sequences.csv
+ground_truth_sequences_train.csv
+ground_truth_sequences_val.csv
 utils/test_geoloc.py
+checkpoints
