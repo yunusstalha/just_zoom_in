@@ -195,7 +195,6 @@ cython_debug/
 .pypirc
 
 .gitignore
-sample_visualizations
 dataset_visualizations
 overfit_visualizations
 evaluation_results

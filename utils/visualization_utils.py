@@ -1,8 +1,32 @@
 import torch
 import numpy as np
 import tiledwebmaps as twm
+import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from PIL import Image
+
+# --- Constants ---
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
+
+# --- Image Tensor Helpers  ---
+
+def _denormalize(tensor: torch.Tensor) -> torch.Tensor:
+    """Denormalizes an image tensor with ImageNet stats."""
+    mean = torch.tensor(IMAGENET_MEAN, dtype=tensor.dtype, device=tensor.device).view(-1, 1, 1)
+    std = torch.tensor(IMAGENET_STD, dtype=tensor.dtype, device=tensor.device).view(-1, 1, 1)
+    return tensor * std + mean
+
+def tensor_to_image(tensor: torch.Tensor, denorm: bool = True) -> np.ndarray:
+    """Converts a torch image tensor to a numpy array for visualization."""
+    image = tensor.detach().cpu()
+    if denorm:
+        # Handle batched ground crops (N, C, H, W) vs single images (C, H, W)
+        if image.dim() == 4:
+            image = torch.stack([_denormalize(img) for img in image])
+        else:
+            image = _denormalize(image)
+    image = image.clamp(0.0, 1.0)
+    return image.permute(0, 2, 3, 1).numpy() if image.dim() == 4 else image.permute(1, 2, 0).numpy()
 
 
 # --- Core Drawing Functions ---
@@ -10,16 +34,6 @@ from PIL import Image
 def draw_grid_and_marker(ax, image_shape, grid_size, gt_pixel_coords, selected_patch_coords, is_correct=None, draw_marker=True):
     """
     Draws a grid, a highlighted selected patch, and an optional ground-truth marker on a matplotlib axis.
-
-    Args:
-        ax: The matplotlib axis to draw on.
-        image_shape: The (height, width) of the image.
-        grid_size: The number of grid cells along one dimension (e.g., 4 for a 4x4 grid).
-        gt_pixel_coords: A tuple (x, y) for the ground-truth location marker.
-        selected_patch_coords: A tuple (row, col) of the selected patch to highlight.
-        is_correct (bool, optional): If provided, colors the patch green for correct,
-                                     red for incorrect. Defaults to yellow.
-        draw_marker (bool): If True, draws the red dot for the GT location.
     """
     img_h, img_w = image_shape[:2]
     patch_h, patch_w = img_h / grid_size, img_w / grid_size
@@ -101,11 +115,14 @@ def load_full_satellite_path_with_details(cfg, sequence, gt_latlon):
     current_center = np.array(initial_center)
     current_size = initial_size
     
+    # Use the target image size from the config for consistency
+    target_image_size = cfg.data.target_image_size
+    
     for patch_index in sequence:
-        mpp = current_size / cfg.data.target_image_size
+        mpp = current_size / target_image_size
         array = tile_loader.load(
             latlon=current_center, bearing=0.0, meters_per_pixel=mpp,
-            shape=(cfg.data.target_image_size, cfg.data.target_image_size),
+            shape=(target_image_size, target_image_size),
         )
         
         path_details.append({
@@ -117,10 +134,10 @@ def load_full_satellite_path_with_details(cfg, sequence, gt_latlon):
         current_center, current_size = _update_zoom_state(current_center, current_size, patch_index, cfg.data.grid_size)
 
     # After the loop, load the final, high-resolution patch
-    final_mpp = current_size / cfg.data.target_image_size
+    final_mpp = current_size / target_image_size
     final_array = tile_loader.load(
         latlon=current_center, bearing=0.0, meters_per_pixel=final_mpp,
-        shape=(cfg.data.target_image_size, cfg.data.target_image_size),
+        shape=(target_image_size, target_image_size),
     )
     
     final_patch_details = {
@@ -129,3 +146,101 @@ def load_full_satellite_path_with_details(cfg, sequence, gt_latlon):
     }
 
     return path_details, final_patch_details
+
+
+def calculate_final_patch_bbox(sequence, grid_size):
+    """
+    Calculates the bounding box of the final patch relative to the initial image canvas.
+    The bounding box is returned as fractional coordinates (0.0 to 1.0).
+    
+    Returns:
+        (x_min, y_min, width, height)
+    """
+    # Start with the full canvas [x, y, w, h]
+    x_min, y_min, width, height = 0.0, 0.0, 1.0, 1.0
+
+    for patch_index in sequence:
+        row, col = divmod(patch_index, grid_size)
+        patch_width = width / grid_size
+        patch_height = height / grid_size
+
+        # Update the top-left corner of our new, smaller canvas
+        x_min += col * patch_width
+        y_min += row * patch_height
+
+        # The size of our canvas shrinks for the next iteration
+        width = patch_width
+        height = patch_height
+
+    return (x_min, y_min, width, height)
+
+
+def generate_overview_visualization(cfg, gt_sequence, pred_sequence, gt_latlon, image_id, output_path):
+    """
+    Generates a high-res overview of the initial satellite map, highlighting the
+    final GT and predicted patches.
+    """
+    HIGH_RES_SHAPE = (2048, 2048)
+    
+    # --- Step 1: Load the initial high-resolution satellite map ---
+    tile_loader = twm.WithDefault(twm.from_yaml(cfg.paths.tile_layout))
+    
+    min_east, max_east, _, _ = cfg.data.region_bounds_meters
+    center_east = (min_east + max_east) / 2.0
+    center_north = (cfg.data.region_bounds_meters[2] + cfg.data.region_bounds_meters[3]) / 2.0
+    temp_center = twm.geo.move_from_latlon(np.array(cfg.data.geographic_center_latlon), 90, center_east)
+    initial_center = twm.geo.move_from_latlon(temp_center, 0, center_north)
+    initial_size = max_east - min_east
+
+    mpp = initial_size / HIGH_RES_SHAPE[0]
+    initial_map_hr = tile_loader.load(
+        latlon=initial_center, bearing=0.0, meters_per_pixel=mpp,
+        shape=HIGH_RES_SHAPE
+    )
+
+    # --- Step 2: Calculate locations of patches and GT point ---
+    gt_pixel_coords = _calculate_gt_pixel_coords(gt_latlon, initial_center, initial_size, HIGH_RES_SHAPE)
+    
+    gt_bbox_frac = calculate_final_patch_bbox(gt_sequence, cfg.data.grid_size)
+    pred_bbox_frac = calculate_final_patch_bbox(pred_sequence, cfg.data.grid_size)
+
+    # Convert fractional bboxes to absolute pixel coordinates for plotting
+    h, w = HIGH_RES_SHAPE
+    gt_bbox_pixels = (gt_bbox_frac[0] * w, gt_bbox_frac[1] * h, gt_bbox_frac[2] * w, gt_bbox_frac[3] * h)
+    pred_bbox_pixels = (pred_bbox_frac[0] * w, pred_bbox_frac[1] * h, pred_bbox_frac[2] * w, pred_bbox_frac[3] * h)
+
+    # --- Step 3: Plot the visualization ---
+    fig, ax = plt.subplots(figsize=(10, 10), dpi=200)
+    ax.imshow(initial_map_hr)
+
+    is_correct = np.array_equal(gt_sequence, pred_sequence)
+
+    if is_correct:
+        # Prediction is correct, draw one green saturated box
+        rect = patches.Rectangle(
+            (gt_bbox_pixels[0], gt_bbox_pixels[1]), gt_bbox_pixels[2], gt_bbox_pixels[3],
+            linewidth=2, edgecolor='lime', facecolor='lime', alpha=0.5, label='Correct Prediction'
+        )
+        ax.add_patch(rect)
+    else:
+        # Prediction is wrong, draw two distinct boxes
+        rect_gt = patches.Rectangle(
+            (gt_bbox_pixels[0], gt_bbox_pixels[1]), gt_bbox_pixels[2], gt_bbox_pixels[3],
+            linewidth=2, edgecolor='gold', facecolor='none', label='Ground Truth Patch'
+        )
+        rect_pred = patches.Rectangle(
+            (pred_bbox_pixels[0], pred_bbox_pixels[1]), pred_bbox_pixels[2], pred_bbox_pixels[3],
+            linewidth=2, edgecolor='red', facecolor='red', alpha=0.4, label='Predicted Patch'
+        )
+        ax.add_patch(rect_gt)
+        ax.add_patch(rect_pred)
+
+    # Plot the precise GT location as a dot
+    ax.plot(gt_pixel_coords[0], gt_pixel_coords[1], 'go', markersize=8, markeredgecolor='white', markeredgewidth=1.5, label='Ground Truth Location')
+
+    ax.set_title(f"Final Localization Overview for ID: {image_id}")
+    ax.legend()
+    ax.axis('off')
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close(fig)

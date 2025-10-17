@@ -1,54 +1,50 @@
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import torch
+import numpy as np
 
 from configs.base import get_config
 from data.dataset import ZoomDataset
-from data.transforms import IMAGENET_MEAN, IMAGENET_STD, build_transforms
+from data.transforms import build_transforms
+from utils.visualization_utils import tensor_to_image
 
-# --- Basic knobs so we can tweak behaviour without editing much below ---
 NUM_SAMPLES = 4          # How many consecutive samples to render starting at index 0.
-USE_TRANSFORMS = False    # Use data/transforms.py (and denormalize for visualization).
-OUTPUT_DIR = Path("./dataset_visualizations")
-
-
-def _denormalize(tensor: torch.Tensor) -> torch.Tensor:
-    mean = torch.tensor(IMAGENET_MEAN, dtype=tensor.dtype, device=tensor.device).view(-1, 1, 1)
-    std = torch.tensor(IMAGENET_STD, dtype=tensor.dtype, device=tensor.device).view(-1, 1, 1)
-    return tensor * std + mean
-
-
-def _tensor_to_image(tensor: torch.Tensor, denorm: bool) -> torch.Tensor:
-    image = tensor.detach()
-    if denorm:
-        image = _denormalize(image)
-    image = image.clamp(0.0, 1.0)
-    return image.permute(1, 2, 0).cpu()
-
+USE_TRANSFORMS = True    # Use data/transforms.py (and denormalize for visualization).
+OUTPUT_DIR = Path("./dataset_visualizations/dataset_inspection")
 
 def save_sample(sample_idx: int, sample: dict, denorm: bool) -> None:
     sequence_indices = sample["sequence"].tolist()
-    patches = sample["satellite_sequence"]
-    panels = 1 + len(sequence_indices)
+    
+    # Ground images can have multiple crops, visualize all of them
+    ground_images = tensor_to_image(sample["ground"], denorm=denorm)
+    if ground_images.ndim == 3: # If not batched, add a batch dimension
+        ground_images = np.expand_dims(ground_images, axis=0)
+    num_ground_crops = ground_images.shape[0]
 
-    fig, axes = plt.subplots(1, panels, figsize=(3 * panels, 3))
+    sat_sequence = tensor_to_image(sample["satellite_sequence"], denorm=denorm)
+    
+    panels = num_ground_crops + len(sequence_indices)
+    fig, axes = plt.subplots(1, panels, figsize=(4 * panels, 4))
     if panels == 1:
         axes = [axes]
 
-    axes[0].imshow(_tensor_to_image(sample["ground"], denorm))
-    axes[0].set_title(f"Ground\n{sample['meta']['image_id']}")
-    axes[0].axis("off")
+    # Plot Ground images
+    for i in range(num_ground_crops):
+        axes[i].imshow(ground_images[i])
+        axes[i].set_title(f"Ground Crop {i+1}")
+        axes[i].axis("off")
 
-    for col, (patch_tensor, patch_idx) in enumerate(zip(patches, sequence_indices), start=1):
-        axes[col].imshow(_tensor_to_image(patch_tensor, denorm))
-        axes[col].set_title(f"Zoom {col}\nPatch {patch_idx}")
-        axes[col].axis("off")
+    # Plot Satellite sequence
+    for i, patch_idx in enumerate(sequence_indices):
+        ax_idx = num_ground_crops + i
+        axes[ax_idx].imshow(sat_sequence[i])
+        axes[ax_idx].set_title(f"Zoom {i+1}\nPatch {patch_idx}")
+        axes[ax_idx].axis("off")
 
     fig.suptitle(
         f"Sample {sample_idx} – {sample['meta']['image_id']} "
         f"(lat {sample['meta']['latitude']:.5f}, lon {sample['meta']['longitude']:.5f})",
-        fontsize=10,
+        fontsize=12,
     )
     plt.tight_layout()
 
@@ -56,11 +52,13 @@ def save_sample(sample_idx: int, sample: dict, denorm: bool) -> None:
     out_path = OUTPUT_DIR / f"dataset_sample_{sample_idx:03d}.png"
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
-    print(f"[visualize_zoom_dataset] saved {out_path}")
+    print(f"Saved {out_path}")
 
 
 if __name__ == "__main__":
     cfg = get_config()
+    # Note: inspect_dataset should probably always use transforms to see what the model sees.
+    # If USE_TRANSFORMS is False, ground images might not be cropped correctly.
     transforms = build_transforms(cfg.data.target_image_size) if USE_TRANSFORMS else None
     dataset = ZoomDataset(cfg, transforms=transforms)
 
