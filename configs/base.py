@@ -32,7 +32,15 @@ def get_config():
     cfg.training.learning_rate = 3e-4
     cfg.training.num_epochs = 50
     cfg.training.log_interval = 20  # Log metrics every 20 steps
-    cfg.training.project_name = "GeoZoom-CVGL"
-    cfg.training.run_name = "dinov2-base-run-1" # Give a name for this specific run
+    cfg.training.eval_interval_epochs = 5   # Evaluate on the validation set every epoch
+    cfg.training.save_interval_epochs = 5   # Save a checkpoint every 5 epochs
+    cfg.training.compile = True             # Enable torch.compile for a speed boost
+    cfg.training.grad_clip_norm = 1.0       # Max norm for gradient clipping. Set to 0 to disable.
+    cfg.training.warmup_pct = 0.05          # Percentage of total steps for LR warmup
 
+    # --- Wandb Logging ---
+    cfg.wandb = ConfigDict()
+    cfg.wandb.enable = True                 # Set to False to disable logging
+    cfg.wandb.project_name = "GeoZoom-CVGL"
+        
     return cfg
