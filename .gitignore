@@ -203,3 +203,4 @@ ground_truth_sequences_train.csv
 ground_truth_sequences_val.csv
 utils/test_geoloc.py
 checkpoints
+wandb

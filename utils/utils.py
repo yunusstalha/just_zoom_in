@@ -40,15 +40,12 @@ def generate_run_name(cfg):
     learning_rate = f"lr{cfg.training.learning_rate}"
     epochs = f"e{cfg.training.num_epochs}"
 
-    # Data details
-    data_details = f"seq{cfg.data.sequence_length}grid{cfg.data.grid_size}"
-
     # Timestamp
     date = time.strftime("%m%d-%H%M")
 
     # Combine everything
     run_name = (
-        f"{encoder_name}_{decoder_details}_{data_details}_"
+        f"{encoder_name}_{decoder_details}_"
         f"{batch_size}_{learning_rate}_{epochs}_{date}"
     )
     return run_name

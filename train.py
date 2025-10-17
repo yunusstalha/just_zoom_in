@@ -89,7 +89,7 @@ def main():
         tracker = wandb
     else:
         tracker = DummyWandb()
-
+        
     checkpoint_dir = Path(cfg.paths.checkpoint_dir + "/" + run_name)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
